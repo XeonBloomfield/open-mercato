@@ -15,12 +15,26 @@ const requestSchema = z.object({
   description: z.string().trim().default('Quote has had no customer-facing activity for 7 days. Review owner, quote history, and next safe follow-up action.'),
   specialist: z.enum(['sales-ops', 'customer-success', 'finance-ops']).default('sales-ops'),
   priority: z.enum(['urgent', 'high', 'medium', 'low', 'none']).default('high'),
+  quoteNumber: z.string().trim().default('SQ-DEMO-1002'),
   sourceUrl: z.string().trim().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 })
 
+function parseWebhookSecret(secret: string): Buffer | string {
+  const trimmed = secret.trim()
+  if (trimmed.startsWith('whsec_')) {
+    try {
+      const decoded = Buffer.from(trimmed.slice('whsec_'.length), 'base64')
+      if (decoded.length > 0) return decoded
+    } catch {
+      // Fall through to raw secret for malformed demo values.
+    }
+  }
+  return trimmed
+}
+
 function buildSignature(secret: string, timestamp: string, body: string): string {
-  return createHmac('sha256', secret)
+  return createHmac('sha256', parseWebhookSecret(secret))
     .update(`${timestamp}.${body}`)
     .digest('hex')
 }
@@ -58,6 +72,7 @@ export async function POST(request: Request) {
     priority: parsed.priority,
     source_url: parsed.sourceUrl || `${new URL(request.url).origin}/backend/sales/quotes`,
     metadata: {
+      quoteNumber: parsed.quoteNumber,
       tenantId: auth.tenantId,
       organizationId: auth.orgId,
       triggeredByUserId: auth.sub,
